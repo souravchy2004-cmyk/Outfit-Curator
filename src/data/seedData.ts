@@ -372,7 +372,7 @@ export const DEMO_WARDROBE: WardrobeItem[] = [
     type: 'Sunglasses',
     color: 'Black',
     brand: 'Ray-Ban',
-    season: ['Summer', 'Sunny'],
+    season: ['Summer'],
     occasions: ['Casual', 'College', 'Travel'],
     styles: ['Trendy', 'Y2K', 'Streetwear'],
     favorite: false,
