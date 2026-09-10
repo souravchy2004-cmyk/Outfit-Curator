@@ -1,13 +1,15 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { useAppStore } from '../../stores/useAppStore';
-import { ClothingCategory, ClothingType, ColorPreference, StyleType, Occasion } from '../../types';
+import { ClothingCategory, ClothingType, ColorPreference, StyleType } from '../../types';
 import { analyzeClothingImage } from '../../services/ai/clothingClassifier';
-import { Camera, ImagePlus, Sparkles, Check, ArrowRight, Loader2, RefreshCw } from 'lucide-react';
+import { uploadImageToBackend } from '../../services/storage/imageUploadService';
+import { Camera, ImagePlus, Sparkles, Check, RefreshCw, Loader2, UploadCloud } from 'lucide-react';
 
 export const AddClothingScreen: React.FC = () => {
   const { addWardrobeItem, setCurrentView } = useAppStore();
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [imageUrl, setImageUrl] = useState<string>('');
   const [name, setName] = useState<string>('');
@@ -17,10 +19,11 @@ export const AddClothingScreen: React.FC = () => {
   const [brand, setBrand] = useState<string>('');
   const [size, setSize] = useState<string>('M');
   const [style, setStyle] = useState<StyleType>('Casual');
+  const [isUploading, setIsUploading] = useState<boolean>(false);
   const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
   const [isAiDetected, setIsAiDetected] = useState<boolean>(false);
 
-  // Sample clothing presets for instant demo camera/gallery selection
+  // Quick preset samples
   const sampleImages = [
     {
       name: 'Black Cotton Oversized Tee',
@@ -56,19 +59,42 @@ export const AddClothingScreen: React.FC = () => {
     }
   ];
 
+  // File upload handler
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsUploading(true);
+    setName(file.name.replace(/\.[^/.]+$/, '').replace(/[-_]/g, ' '));
+
+    // Upload to Backend Server API (/api/upload or server.js)
+    const uploadResult = await uploadImageToBackend(file);
+    setIsUploading(false);
+
+    if (uploadResult.imageUrl) {
+      setImageUrl(uploadResult.imageUrl);
+      runAiClassification(uploadResult.imageUrl);
+    }
+  };
+
+  const runAiClassification = async (url: string) => {
+    setIsAnalyzing(true);
+    const result = await analyzeClothingImage(url);
+    setCategory(result.category);
+    setType(result.type);
+    setColor(result.color);
+    setStyle(result.style);
+    setIsAnalyzing(false);
+    setIsAiDetected(true);
+  };
+
   const handleSelectSample = async (sample: typeof sampleImages[0]) => {
     setImageUrl(sample.url);
     setName(sample.name);
-    setIsAnalyzing(true);
-
-    const result = await analyzeClothingImage(sample.url);
-    
-    setCategory(sample.category || result.category);
-    setType(sample.type || result.type);
-    setColor(sample.color || result.color);
-    setStyle(sample.style || result.style);
-    
-    setIsAnalyzing(false);
+    setCategory(sample.category);
+    setType(sample.type);
+    setColor(sample.color);
+    setStyle(sample.style);
     setIsAiDetected(true);
   };
 
@@ -98,20 +124,31 @@ export const AddClothingScreen: React.FC = () => {
       <div>
         <h1 className="text-2xl font-bold text-font-main">Add New Item</h1>
         <p className="text-xs text-font-sub mt-0.5">
-          Upload photo or pick from camera. AI will analyze attributes automatically.
+          Upload photo to backend server or pick from gallery. AI automatically classifies attributes.
         </p>
       </div>
 
-      {/* Upload Dropzone Area */}
+      {/* Hidden Native File Input */}
+      <input
+        type="file"
+        ref={fileInputRef}
+        onChange={handleFileSelect}
+        accept="image/png, image/jpeg, image/webp, image/jpg"
+        className="hidden"
+      />
+
+      {/* Upload Dropzone Container */}
       <div className="w-full rounded-3xl bg-white border-2 border-dashed border-brand-200 p-6 flex flex-col items-center justify-center text-center shadow-soft relative overflow-hidden">
         {imageUrl ? (
           <div className="w-full flex flex-col items-center gap-3">
             <div className="w-40 h-40 rounded-2xl bg-surface-muted border border-surface-border overflow-hidden relative shadow-soft">
               <img src={imageUrl} alt="Uploaded clothing" className="w-full h-full object-cover" />
-              {isAnalyzing && (
+              {(isAnalyzing || isUploading) && (
                 <div className="absolute inset-0 bg-black/50 backdrop-blur-xs flex flex-col items-center justify-center text-white">
                   <Loader2 className="w-8 h-8 animate-spin text-brand-300 mb-1" />
-                  <span className="text-[10px] font-bold">Analyzing...</span>
+                  <span className="text-[10px] font-bold">
+                    {isUploading ? 'Uploading to Server...' : 'Analyzing AI Vision...'}
+                  </span>
                 </div>
               )}
             </div>
@@ -125,28 +162,50 @@ export const AddClothingScreen: React.FC = () => {
             </button>
           </div>
         ) : (
-          <div className="flex flex-col items-center gap-3 py-4">
+          <div className="flex flex-col items-center gap-3.5 py-4 w-full">
             <div className="w-16 h-16 rounded-2xl bg-brand-50 text-brand-500 flex items-center justify-center shadow-soft">
-              <Camera className="w-8 h-8" />
-            </div>
-            
-            <div>
-              <h3 className="font-bold text-sm text-font-main">Take or Select Clothing Photo</h3>
-              <p className="text-xs text-font-sub mt-0.5">Pick a quick sample below to test AI vision detection:</p>
+              <UploadCloud className="w-8 h-8" />
             </div>
 
-            {/* Quick Demo Sample Pickers */}
-            <div className="grid grid-cols-4 gap-2 mt-2 w-full max-w-xs">
-              {sampleImages.map((s, idx) => (
-                <button
-                  key={idx}
-                  onClick={() => handleSelectSample(s)}
-                  className="w-full aspect-square rounded-xl bg-surface-muted border border-surface-border overflow-hidden hover:border-brand-500 transition-all hover:scale-105"
-                  title={s.name}
-                >
-                  <img src={s.url} alt={s.name} className="w-full h-full object-cover" />
-                </button>
-              ))}
+            <div>
+              <h3 className="font-bold text-sm text-font-main">Upload Photo to Server</h3>
+              <p className="text-xs text-font-sub mt-0.5">JPG, PNG, WEBP up to 10MB</p>
+            </div>
+
+            {/* Upload Buttons Row */}
+            <div className="flex items-center gap-3 mt-1">
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                className="py-2.5 px-4 rounded-2xl bg-gradient-purple text-white font-bold text-xs flex items-center gap-2 shadow-soft hover:brightness-105"
+              >
+                <ImagePlus className="w-4 h-4" />
+                <span>Browse Gallery</span>
+              </button>
+
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                className="py-2.5 px-4 rounded-2xl bg-surface-muted border border-surface-border text-font-main font-semibold text-xs flex items-center gap-2 hover:bg-brand-50"
+              >
+                <Camera className="w-4 h-4 text-brand-500" />
+                <span>Take Camera Photo</span>
+              </button>
+            </div>
+
+            {/* Quick Demo Sample Picker */}
+            <div className="w-full pt-3 border-t border-surface-border mt-2">
+              <p className="text-[11px] text-font-sub font-semibold mb-2">Or test with demo sample image:</p>
+              <div className="grid grid-cols-4 gap-2 w-full max-w-xs mx-auto">
+                {sampleImages.map((s, idx) => (
+                  <button
+                    key={idx}
+                    onClick={() => handleSelectSample(s)}
+                    className="w-full aspect-square rounded-xl bg-surface-muted border border-surface-border overflow-hidden hover:border-brand-500 transition-all hover:scale-105"
+                    title={s.name}
+                  >
+                    <img src={s.url} alt={s.name} className="w-full h-full object-cover" />
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
         )}
@@ -156,7 +215,7 @@ export const AddClothingScreen: React.FC = () => {
       {isAiDetected && (
         <div className="w-full rounded-2xl bg-emerald-50 border border-emerald-200 p-3 flex items-center gap-2 text-emerald-800 text-xs font-semibold">
           <Sparkles className="w-4 h-4 text-emerald-600 shrink-0" />
-          <span>AI vision detected category, color, and style! You can adjust details below before saving.</span>
+          <span>AI detected attributes! Review and edit metadata below before saving to wardrobe.</span>
         </div>
       )}
 
@@ -232,11 +291,11 @@ export const AddClothingScreen: React.FC = () => {
 
         <button
           type="submit"
-          disabled={!imageUrl}
+          disabled={!imageUrl || isUploading}
           className="w-full py-3.5 mt-2 rounded-2xl bg-gradient-purple text-white font-bold text-xs flex items-center justify-center gap-2 shadow-soft hover:brightness-105 disabled:opacity-50 transition-all"
         >
           <Check className="w-4 h-4" />
-          <span>Save Clothing Item</span>
+          <span>Save Item to Digital Wardrobe</span>
         </button>
       </form>
     </div>

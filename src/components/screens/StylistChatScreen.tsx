@@ -2,19 +2,21 @@
 
 import React, { useState } from 'react';
 import { useAppStore } from '../../stores/useAppStore';
-import { askAIStylist } from '../../services/ai/styleAdvisor';
-import { Sparkles, Send, Bot, User, Loader2 } from 'lucide-react';
+import { askGeminiStylist } from '../../services/ai/geminiService';
+import { Sparkles, Send, Bot, User, Loader2, Zap } from 'lucide-react';
 
 export const StylistChatScreen: React.FC = () => {
   const { stylistMessages, addStylistMessage, wardrobe, setCurrentView } = useAppStore();
   const [inputQuery, setInputQuery] = useState('');
   const [isTyping, setIsTyping] = useState(false);
+  const [aiMode, setAiMode] = useState<'live' | 'mock' | null>(null);
 
   const quickPrompts = [
     "What should I wear to college tomorrow?",
     "How should I style my white shirt?",
     "What should I wear for a dinner date?",
-    "Which shoes go with my blue jeans?"
+    "Which shoes go with my blue jeans?",
+    "Suggest an outfit for rainy weather"
   ];
 
   const handleSend = async (queryText?: string) => {
@@ -23,7 +25,7 @@ export const StylistChatScreen: React.FC = () => {
 
     // Add user message
     const userMsg = {
-      id: Math.random().toString(),
+      id: Math.random().toString(36).substring(2),
       sender: 'user' as const,
       content: textToSend,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
@@ -32,10 +34,35 @@ export const StylistChatScreen: React.FC = () => {
     setInputQuery('');
     setIsTyping(true);
 
-    // Call AI Stylist Advisor
-    const aiResponse = await askAIStylist(textToSend, wardrobe);
-    setIsTyping(false);
-    addStylistMessage(aiResponse);
+    try {
+      // Call Gemini AI via backend /api/gemini route
+      const reply = await askGeminiStylist(textToSend, wardrobe);
+      
+      // Detect mock vs live mode from response
+      if (reply.includes('Gemini AI Stylist') || reply.includes('Gemini')) {
+        setAiMode('mock');
+      } else {
+        setAiMode('live');
+      }
+
+      const aiMsg = {
+        id: Math.random().toString(36).substring(2),
+        sender: 'assistant' as const,
+        content: reply,
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      };
+      addStylistMessage(aiMsg);
+    } catch (err) {
+      const fallback = {
+        id: Math.random().toString(36).substring(2),
+        sender: 'assistant' as const,
+        content: `Based on your ${wardrobe.length} wardrobe items, I recommend a clean, elegant combination. Try your White Kurta or Shirt with Blue Jeans and White Sneakers for a smart casual look! ✨`,
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      };
+      addStylistMessage(fallback);
+    } finally {
+      setIsTyping(false);
+    }
   };
 
   return (
@@ -45,10 +72,27 @@ export const StylistChatScreen: React.FC = () => {
         <div className="w-10 h-10 rounded-2xl bg-gradient-purple text-white flex items-center justify-center shadow-soft shrink-0">
           <Sparkles className="w-5 h-5 animate-pulse" />
         </div>
-        <div>
-          <h2 className="font-bold text-xs text-font-main">Personal AI Stylist</h2>
-          <p className="text-[10px] text-font-sub">Trained on your {wardrobe.length} digital wardrobe clothes</p>
+        <div className="flex-1">
+          <div className="flex items-center gap-2">
+            <h2 className="font-bold text-xs text-font-main">Personal Gemini AI Stylist</h2>
+            <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full ${
+              aiMode === 'live' 
+                ? 'bg-emerald-100 text-emerald-700 border border-emerald-200' 
+                : 'bg-amber-100 text-amber-700 border border-amber-200'
+            }`}>
+              {aiMode === 'live' ? '⚡ Gemini Live' : '🤖 Smart Mode'}
+            </span>
+          </div>
+          <p className="text-[10px] text-font-sub">Powered by Google Gemini • {wardrobe.length} wardrobe items trained</p>
         </div>
+      </div>
+
+      {/* Gemini Key Hint Banner */}
+      <div className="mb-3 p-3 rounded-2xl bg-amber-50 border border-amber-200 flex items-start gap-2">
+        <Zap className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+        <p className="text-[11px] text-amber-800 leading-relaxed">
+          <b>Activate Live Gemini AI:</b> Add <code className="bg-amber-100 px-1 rounded">GEMINI_API_KEY=your_key</code> to <code className="bg-amber-100 px-1 rounded">.env</code> file and restart backend. Get key free at <b>aistudio.google.com</b>
+        </p>
       </div>
 
       {/* Messages Stream */}
@@ -73,7 +117,6 @@ export const StylistChatScreen: React.FC = () => {
             }`}>
               <p>{msg.content}</p>
 
-              {/* Recommended Clothes Preview Cards */}
               {msg.recommendedItems && msg.recommendedItems.length > 0 && (
                 <div className="grid grid-cols-2 gap-2 mt-3 pt-2 border-t border-gray-100">
                   {msg.recommendedItems.map((item) => (
@@ -100,7 +143,7 @@ export const StylistChatScreen: React.FC = () => {
         {isTyping && (
           <div className="flex items-center gap-2 mr-auto bg-white p-3 rounded-2xl border border-surface-border shadow-soft">
             <Loader2 className="w-4 h-4 text-brand-500 animate-spin" />
-            <span className="text-xs text-font-sub italic">AI Stylist is thinking...</span>
+            <span className="text-xs text-font-sub italic">Gemini AI is thinking...</span>
           </div>
         )}
       </div>
@@ -120,23 +163,19 @@ export const StylistChatScreen: React.FC = () => {
         </div>
 
         <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            handleSend();
-          }}
+          onSubmit={(e) => { e.preventDefault(); handleSend(); }}
           className="flex items-center gap-2"
         >
           <input
             type="text"
             value={inputQuery}
             onChange={(e) => setInputQuery(e.target.value)}
-            placeholder="Ask your AI stylist anything..."
+            placeholder="Ask Gemini AI anything about your style..."
             className="flex-1 py-3 px-4 rounded-2xl bg-white border border-surface-border text-xs focus:outline-none focus:border-brand-500 shadow-soft"
           />
-
           <button
             type="submit"
-            disabled={!inputQuery.trim()}
+            disabled={!inputQuery.trim() || isTyping}
             className="w-11 h-11 rounded-2xl bg-gradient-purple text-white flex items-center justify-center disabled:opacity-40 hover:brightness-105 shadow-soft shrink-0"
           >
             <Send className="w-4 h-4" />

@@ -37,6 +37,15 @@ export type AppView =
   | 'brands'
   | 'admin';
 
+export interface WeatherData {
+  city: string;
+  tempCelsius: number;
+  condition: WeatherCondition;
+  humidityPercent: number;
+  description: string;
+  tip: string;
+}
+
 interface AppState {
   // Navigation & Shell
   currentView: AppView;
@@ -44,14 +53,22 @@ interface AppState {
   setCurrentView: (view: AppView) => void;
   setActiveTab: (tab: 'home' | 'wardrobe' | 'outfits' | 'profile') => void;
 
-  // Auth & Profile
+  // Multi-User Auth & Account Management
   user: UserProfile;
+  registeredUsers: UserProfile[];
+  userPasswords: Record<string, string>; // email -> password
   isAuthenticated: boolean;
   setUser: (user: UserProfile) => void;
+  signUpWithEmail: (name: string, email: string, pass: string) => boolean;
+  loginWithPassword: (email: string, pass: string) => { success: boolean; message?: string };
   loginAsGuest: () => void;
-  loginWithEmail: (email: string, name?: string) => void;
+  switchUserAccount: (userId: string) => void;
   logout: () => void;
   updateProfile: (updates: Partial<UserProfile>) => void;
+
+  // Weather Customization
+  currentWeather: WeatherData;
+  updateWeather: (newWeather: Partial<WeatherData>) => void;
 
   // Wardrobe Management
   wardrobe: WardrobeItem[];
@@ -113,10 +130,105 @@ export const useAppStore = create<AppState>((set, get) => ({
     else if (tab === 'profile') set({ currentView: 'profile' });
   },
 
-  // User Auth
+  // Multi-User Auth
   user: DEFAULT_USER,
+  registeredUsers: [
+    DEFAULT_USER,
+    {
+      id: 'user-demo-rahul',
+      name: 'Rahul Verma',
+      email: 'rahul@example.com',
+      avatarUrl: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=300&q=80',
+      isGuest: false,
+      genderPreference: 'Men',
+      stylePreferences: ['Streetwear', 'Casual', 'Smart Casual'],
+      colorPreferences: ['Black', 'Navy', 'White'],
+      preferredOccasions: ['College', 'Office', 'Party'],
+      preferredWeather: ['Sunny', 'Cold'],
+      subscriptionPlan: 'premium',
+      onboardingCompleted: true,
+      createdAt: new Date().toISOString()
+    },
+    {
+      id: 'user-demo-priya',
+      name: 'Priya Patel',
+      email: 'priya@example.com',
+      avatarUrl: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=300&q=80',
+      isGuest: false,
+      genderPreference: 'Women',
+      stylePreferences: ['Classy', 'Traditional / Ethnic', 'Minimal'],
+      colorPreferences: ['Pink', 'Beige', 'White'],
+      preferredOccasions: ['Wedding', 'Formal', 'Dinner'],
+      preferredWeather: ['Sunny'],
+      subscriptionPlan: 'free',
+      onboardingCompleted: true,
+      createdAt: new Date().toISOString()
+    }
+  ],
+  userPasswords: {
+    'sakshi@example.com': 'sakshi123',
+    'rahul@example.com': 'rahul123',
+    'priya@example.com': 'priya123'
+  },
   isAuthenticated: true,
+
   setUser: (user) => set({ user }),
+
+  signUpWithEmail: (name, email, password) => {
+    const state = get();
+    const existing = state.registeredUsers.find(u => u.email.toLowerCase() === email.toLowerCase());
+    if (existing) return false;
+
+    const newUser: UserProfile = {
+      id: `user-${Date.now()}`,
+      name,
+      email,
+      avatarUrl: `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(name)}`,
+      isGuest: false,
+      genderPreference: 'Unisex',
+      stylePreferences: ['Casual', 'Trendy'],
+      colorPreferences: ['Black', 'White', 'Blue'],
+      preferredOccasions: ['Casual', 'College'],
+      preferredWeather: ['Sunny'],
+      subscriptionPlan: 'free',
+      onboardingCompleted: false,
+      createdAt: new Date().toISOString()
+    };
+
+    set({
+      registeredUsers: [...state.registeredUsers, newUser],
+      userPasswords: { ...state.userPasswords, [email.toLowerCase()]: password },
+      user: newUser,
+      isAuthenticated: true,
+      currentView: 'onboarding'
+    });
+    return true;
+  },
+
+  loginWithPassword: (email, password) => {
+    const state = get();
+    const cleanEmail = email.toLowerCase().trim();
+    const matchedUser = state.registeredUsers.find(u => u.email.toLowerCase() === cleanEmail);
+
+    if (!matchedUser) {
+      // Auto-create account if new email
+      state.signUpWithEmail(cleanEmail.split('@')[0], cleanEmail, password);
+      return { success: true };
+    }
+
+    const storedPass = state.userPasswords[cleanEmail];
+    if (storedPass && storedPass !== password) {
+      return { success: false, message: 'Invalid password' };
+    }
+
+    set({
+      user: matchedUser,
+      isAuthenticated: true,
+      currentView: 'home'
+    });
+    return { success: true };
+  },
+
   loginAsGuest: () => set({
     user: {
       ...DEFAULT_USER,
@@ -128,23 +240,42 @@ export const useAppStore = create<AppState>((set, get) => ({
     isAuthenticated: true,
     currentView: 'home'
   }),
-  loginWithEmail: (email, name) => set({
-    user: {
-      ...DEFAULT_USER,
-      name: name || email.split('@')[0],
-      email,
-      isGuest: false
-    },
-    isAuthenticated: true,
-    currentView: 'home'
-  }),
+
+  switchUserAccount: (userId) => {
+    const state = get();
+    const targetUser = state.registeredUsers.find(u => u.id === userId);
+    if (targetUser) {
+      set({ user: targetUser, currentView: 'home' });
+    }
+  },
+
   logout: () => set({
     isAuthenticated: false,
     currentView: 'login'
   }),
+
   updateProfile: (updates) => set((state) => ({
-    user: { ...state.user, ...updates }
+    user: { ...state.user, ...updates },
+    registeredUsers: state.registeredUsers.map(u => u.id === state.user.id ? { ...u, ...updates } : u)
   })),
+
+  // Weather Customization
+  currentWeather: {
+    city: 'Mumbai',
+    tempCelsius: 28,
+    condition: 'Sunny',
+    humidityPercent: 65,
+    description: 'Sunny & Pleasant',
+    tip: 'Perfect weather for breathable cotton tops and light layers!'
+  },
+
+  updateWeather: (newWeather) => set((state) => {
+    const updated = { ...state.currentWeather, ...newWeather };
+    if (newWeather.condition) {
+      state.setSelectedWeather(newWeather.condition);
+    }
+    return { currentWeather: updated };
+  }),
 
   // Wardrobe
   wardrobe: DEMO_WARDROBE,
@@ -160,12 +291,15 @@ export const useAppStore = create<AppState>((set, get) => ({
     };
     return { wardrobe: [newItem, ...state.wardrobe] };
   }),
+
   updateWardrobeItem: (id, updates) => set((state) => ({
     wardrobe: state.wardrobe.map(i => i.id === id ? { ...i, ...updates, updatedAt: new Date().toISOString() } : i)
   })),
+
   deleteWardrobeItem: (id) => set((state) => ({
     wardrobe: state.wardrobe.filter(i => i.id !== id)
   })),
+
   toggleFavoriteItem: (id) => set((state) => ({
     wardrobe: state.wardrobe.map(i => i.id === id ? { ...i, favorite: !i.favorite } : i)
   })),
@@ -179,7 +313,10 @@ export const useAppStore = create<AppState>((set, get) => ({
   selectedFit: 'Regular',
   setSelectedOccasion: (occ) => set({ selectedOccasion: occ }),
   setSelectedStyle: (st) => set({ selectedStyle: st }),
-  setSelectedWeather: (w) => set({ selectedWeather: w }),
+  setSelectedWeather: (w) => set((state) => ({
+    selectedWeather: w,
+    currentWeather: { ...state.currentWeather, condition: w }
+  })),
   setSelectedBudget: (b) => set({ selectedBudget: b }),
   setSelectedColor: (c) => set({ selectedColor: c }),
 
@@ -196,10 +333,10 @@ export const useAppStore = create<AppState>((set, get) => ({
     setTimeout(() => {
       const outfit = generateOutfitOptions({
         userId: state.user.id,
-        wardrobe: state.wardrobe,
+        wardrobe: state.wardrobe.filter(w => w.userId === state.user.id || w.userId === 'user-demo-1'),
         occasion: state.selectedOccasion,
         style: state.selectedStyle,
-        weather: state.selectedWeather,
+        weather: state.currentWeather.condition,
         budget: state.selectedBudget,
         feedbackHistory: state.feedbacks
       });
@@ -287,7 +424,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     {
       id: 'msg-welcome',
       sender: 'assistant',
-      content: "Hello Sakshi! 👋 I'm your Personal AI Stylist. Ask me anything about what to wear today, how to style a piece from your wardrobe, or outfit ideas for any occasion!",
+      content: "Hello! 👋 I'm your Personal Gemini AI Stylist. Ask me anything about what to wear today, how to style a piece from your wardrobe, or outfit ideas for any occasion!",
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     }
   ],
@@ -300,18 +437,10 @@ export const useAppStore = create<AppState>((set, get) => ({
     {
       id: 'notif-1',
       title: 'Good Morning! ☀️',
-      message: 'It is 28°C and sunny in Mumbai today. Tap to get your outfit for college!',
+      message: 'Tap to get your weather-friendly outfit recommendation for today!',
       timestamp: 'Today, 8:00 AM',
       read: false,
       type: 'weather'
-    },
-    {
-      id: 'notif-2',
-      title: 'New AI Style Tip ✨',
-      message: 'Try pairing your White Kurta with Blue Jeans for a chic Indo-Western look.',
-      timestamp: 'Yesterday',
-      read: true,
-      type: 'recommendation'
     }
   ],
   markNotificationRead: (id) => set((state) => ({
